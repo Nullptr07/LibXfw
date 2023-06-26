@@ -1,4 +1,5 @@
 #include <pch.hpp>
+#include <set>
 
 // poisoned malloc •﹏• (all the functions used malloc & free MUST be defined here so that compilation error won't happen)
 void c_str_insert(const unsigned char* destination, int pos, const unsigned char* src) { // From Stackoverflow
@@ -53,6 +54,22 @@ void replace_all(std::string& str, const std::string& from, const std::string& t
         str.replace(start_pos, from.length(), to);
         start_pos += to.length(); // In case 'to' contains 'from', like replacing 'x' with 'yx'
     }
+}
+// From stackoverflow
+// for string delimiter
+std::vector<std::string> split(std::string s, std::string delimiter) {
+    size_t pos_start = 0, pos_end, delim_len = delimiter.length();
+    std::string token;
+    std::vector<std::string> res;
+
+    while ((pos_end = s.find(delimiter, pos_start)) != std::string::npos) {
+        token = s.substr (pos_start, pos_end - pos_start);
+        pos_start = pos_end + delim_len;
+        res.push_back (token);
+    }
+
+    res.push_back (s.substr (pos_start));
+    return res;
 }
 
 subhook::Hook TheHook, HookToCxxInit, HookToCppReadMainFile;//, SetGlobalFriendHook;

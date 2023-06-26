@@ -10,6 +10,7 @@
   union { static constexpr auto value() { return __VA_ARGS__; } }
 #define $CONSTANT_VALUE(...) \
   [] { using R = $CONSTANT(__VA_ARGS__); return R{}; }()
+union $DynRet;
 enum $MemberTypes {
     $Field = 0,
     $Method = 1,
@@ -25,7 +26,7 @@ private:
 #define _$GetValue_$Args void* /* obj */
 #define _$GetValue_$FuncSig _$GetValue_$Ret (_$GetValue_$Args)
 #define _$Invoke_$Ret void*
-#define _$Invoke_$Args void* /* obj */, std::vector<void*> /* args */
+#define _$Invoke_$Args void* /* obj */, std::vector<std::any> /* args */
 #define _$Invoke_$FuncSig _$Invoke_$Ret (_$Invoke_$Args)
 
     void _ConstructField(
@@ -56,6 +57,8 @@ public:
     std::function<_$GetValue_$FuncSig> $GetValue;
     std::function<_$Invoke_$FuncSig> $Invoke;
     int8_t $NumArgs;
+
+    $MemberInfo() : $Name("INVALID"), $MemberType($MemberTypes::$Field), $NumArgs(0) {}
 
     template <typename $>
     constexpr $MemberInfo($, auto&&... _Args) {
@@ -99,14 +102,14 @@ Ret $Dyncall(Ret (*fn)(Args...), std::vector<std::any> args) {
     if (sizeof...(Args) != args.size())
         throw "Argument number mismatch!";
     std::vector<std::any*> _tmp(args.size()); for (auto& arg : args) _tmp.push_back(&arg);
-    return func($any_ref_cast<Args>().do_cast($fetch_back(_tmp))...);
+    return fn($any_ref_cast<Args>().do_cast($fetch_back(_tmp))...);
 }
 template <typename Class, typename Ret, typename... Args>
 Ret $Dyncall(Class obj, Ret (Class::*fn)(Args...), std::vector<std::any> args) {
     if (sizeof...(Args) != args.size())
         throw "Argument number mismatch!";
     std::vector<std::any*> _tmp(args.size()); for (auto& arg : args) _tmp.push_back(&arg);
-    return (obj.*fn)(any_ref_cast<Args>().do_cast($fetch_back(_tmp))...);
+    return (obj.*fn)($any_ref_cast<Args>().do_cast($fetch_back(_tmp))...);
 }
 
 struct $Reflector;

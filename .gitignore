@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# IDEA files
+.idea/
+
+# Build files
+Build/Test

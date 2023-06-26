@@ -1,6 +1,7 @@
 #include "Includes.hxx"
 
 inja::json ReflInfo;
+std::set<std::string> allTypes{};
 tree ReflectorClass = NULL_TREE;
 
 // ============
@@ -142,7 +143,7 @@ tree patched_finish_struct (tree t, tree attributes) {
                 // static -> VAR_DECL
                 // non-static -> FIELD_DECL
             $field["IsMethod"] = is_method;
-            $field["IsStatic"] = (bool) TREE_STATIC(field);
+            $field["IsStatic"] = not (bool) DECL_NONSTATIC_MEMBER_P(field);
             if (not TREE_STATIC(field) and not TREE_CODE(field) == FUNCTION_DECL)
                 $field["Offset"] = wi::to_wide(byte_position(field)).to_shwi();
                     // offset is unsigned, so we can use wi::to_wide without adding additional code
@@ -154,7 +155,99 @@ tree patched_finish_struct (tree t, tree attributes) {
                 $field["MemberType"] = "Field";
             if (is_method)
                 $field["MemberType"] = "Method";
+
+            if (is_field) {
+                $field["Type"] = type_as_string(TREE_TYPE(field),
+                                                TFF_SCOPE); // For field, "Type" is the field declaration type
+                $field["TypeSize"] = wi::to_wide(TYPE_SIZE(TREE_TYPE(field))).to_shwi();
+            }
+            if (is_method) {
+                if (field_name == full_name) {// TODO: ctor/dtor handling
+                    $this["Members"].erase(field_name);
+                    goto cont_loop;
+                }
+                $field["Type"] = type_as_string(TREE_TYPE(TREE_TYPE(field)),
+                                                TFF_SCOPE); // For method, "Type" is the return type
+                if (TYPE_SIZE(TREE_TYPE(TREE_TYPE(field))) != NULL_TREE) {
+                    $field["TypeSize"] = wi::to_wide(TYPE_SIZE(TREE_TYPE(TREE_TYPE(field)))).to_shwi();
+                }
+                //debug_tree(FUNCTION_ARG_CHAIN(field));
+                std::string signature = decl_as_string(field, TFF_RETURN_TYPE);
+                auto first = signature.find('(') + 1;
+                auto last = signature.find_last_of(')');
+                std::string argListStr = signature.substr(first, last-first);
+                std::vector<std::string> argList{};
+                if (not argListStr.empty())
+                    argList = split(argListStr, ", ");
+
+#define ADD_METHOD_ARGS \
+    for (int j=0; j<argList.size(); ++j) \
+        $field["MethodInvocationCode"] = (std::string) $field["MethodInvocationCode"] + \
+        "std::any_cast<" + argList[j] + ">(_args[" + std::to_string(j) + "])" + (j == argList.size() - 1 ? "" : ",")
+
+                if (std::string($field["Type"]) == "void") {
+                    if ((bool) $field["IsStatic"]) {
+                        $field["MethodInvocationCode"] = R"code(
+{{ type.FullName }}::{{ member.Name }}()code";
+                        ADD_METHOD_ARGS;
+                        $field["MethodInvocationCode"] = (std::string) $field["MethodInvocationCode"] + R"code();
+return nullptr;)code";
+                    }
+                    else {
+                        $field["MethodInvocationCode"] = R"code(
+(*({{ type.FullName }}*)_obj).{{ member.Name }}()code";
+                        ADD_METHOD_ARGS;
+                        $field["MethodInvocationCode"] = (std::string) $field["MethodInvocationCode"] + R"code();
+return nullptr;)code";
+                    }
+                } else if (std::string($field["Type"]).ends_with("&")) {
+                    if ((bool) $field["IsStatic"])
+                        $field["MethodInvocationCode"] = R"code(
+decltype(auto) _ = ({{ type.FullName }}::{{ member.Name }}()code";
+                    else
+                        $field["MethodInvocationCode"] = R"code(
+decltype(auto) _ = ((*({{ type.FullName }}*)_obj).{{ member.Name }}()code";
+                    ADD_METHOD_ARGS;
+                    $field["MethodInvocationCode"] = (std::string) $field["MethodInvocationCode"] + R"code());
+return (void*) &_;
+)code";
+                } else {
+                    if ((bool) $field["IsStatic"])
+                        $field["MethodInvocationCode"] = R"code(
+char* Space = new char[{{ member.TypeSize }}];
+new (Space) {{ member.Type }} ({{ type.FullName }}::{{ member.Name }}()code";
+                    else
+                        $field["MethodInvocationCode"] = R"code(
+char* Space = new char[{{ member.TypeSize }}];
+new (Space) {{ member.Type }} ((*({{ type.FullName }}*)_obj).{{ member.Name }}()code";
+                    ADD_METHOD_ARGS;
+                    $field["MethodInvocationCode"] = (std::string) $field["MethodInvocationCode"] + R"code());
+return (void*) Space;
+)code";
+                }
+
+                nlohmann::json tmp_json;
+                tmp_json["type"] = $this;
+                tmp_json["member"] = $field;
+
+                $field["MethodInvocationCode"] = inja::render((std::string)$field["MethodInvocationCode"], tmp_json);
+                //std::cout << (std::string) $field["MethodInvocationCode"] << std::endl;
+            }
+            if (is_field and TREE_CODE(TREE_TYPE(field)) == ARRAY_TYPE) {
+                tree elemType = TREE_TYPE(TREE_TYPE(field)); //debug_tree(TREE_TYPE(field));
+                std::string asteriks = "*";
+                //while (not (TREE_CODE(TREE_TYPE(field)) != ARRAY_TYPE)) {
+                //    elemType = TREE_TYPE(field);
+                //    asteriks += "*";
+                //}
+                $field["Type"] = std::string(type_as_string(elemType, TFF_SCOPE)) + asteriks;
+            }
+
+            if (is_field or is_method)
+                allTypes.insert((std::string) $field["Type"]);
+
             // TODO: add ctor, dtor detection
+            cont_loop:
             field = TREE_CHAIN(field); ++i;
         }
     }
@@ -181,7 +274,23 @@ void handle_Xfw_TUnitEnd(cpp_reader*) {
             name = type_as_string(t1, TFF_SCOPE);
         std::cout << name << std::endl;
     });*/
+    allTypes.erase(std::find(allTypes.begin(), allTypes.end(), "void"));
+
+    int i=0;
+    for (std::string str : allTypes) {
+        ReflInfo["DynObjUnionMemberMap"][str] = "t" + std::to_string(i); ++i;
+    }
+    //std::cout << ReflInfo.dump() << std::endl;
     std::string code = inja::render(R"code(
+/*
+union $DynRet {
+    {% for type, name in DynObjUnionMemberMap %}
+    {{ type }} {{ name }};
+    {% endfor %}
+};
+*/
+// std::any : Does not work for references
+// void* : Simply does not work for some return types (like double, int)
 struct $Reflector {
     {% for _1, type in Types %}
     static $Type $Get_{{ type.NormalizedName }}_type() {
@@ -194,22 +303,19 @@ struct $Reflector {
                             $CONSTANT_VALUE($MemberTypes::${{ member.MemberType }}),
                         {% if member.MemberType == "Field" %}
                             "{{ member.Name }}",
-                            [] (auto obj /* in std::any */) {
+                            [] (void* obj /* in std::any */) -> void* {
                             {% if member.IsStatic %}
-                                return {{ type.FullName }}::{{ member.Name }};
+                                return (void*) {{ type.FullName }}::{{ member.Name }};
                             {% else %}
-                                return std::any_cast<{{ type.FullName }}>(obj).{{ member.Name }};
+                                char* Space = new char[{{ member.TypeSize }}];
+                                new (Space) {{member.Type}} (reinterpret_cast<{{type.FullName}}*>(obj)->{{ member.Name }});
+                                return (void*) Space;
                             {% endif %}
                             }
                         {% else if member.MemberType == "Method" %}
                             "{{ member.Name }}",
-                            [] (auto _obj /* in std::any */, auto _args /* in std::vector<std::any> */) {
-                            {% if member.IsStatic %}
-                                // assert(_args.size() ==
-                                return $Dyncall(&{{ type.FullName }}::{{ member.Name }},;
-                            {% else %}
-                                return (void*)0;//&(reinterpret_cast<{{ type.FullName }}*>(_obj)->{{ member.Name }});
-                            {% endif %}
+                            [] (void* _obj /* in std::any */, std::vector<std::any> _args /* in std::vector<std::any> */) -> void* {
+                                {{ at(member, "MethodInvocationCode") }}
                             }
                         {% endif %}
                         )
@@ -232,7 +338,7 @@ $Type $TypeOf(auto Val) {
 {% endfor %}
 }
 )code", ReflInfo);
-    //std::cout << code;
+    //std::cout <<code << std::endl;
 #ifdef DEBUG
     std::cout << code;
 #endif
