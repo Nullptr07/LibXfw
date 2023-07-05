@@ -1,5 +1,8 @@
 #include <pch.hpp>
-#include <set>
+#include <tree-iterator.h>
+#include <fstream>
+using namespace fmt;
+using namespace fmt::literals;
 
 // poisoned malloc •﹏• (all the functions used malloc & free MUST be defined here so that compilation error won't happen)
 void c_str_insert(const unsigned char* destination, int pos, const unsigned char* src) { // From Stackoverflow
@@ -70,6 +73,16 @@ std::vector<std::string> split(std::string s, std::string delimiter) {
 
     res.push_back (s.substr (pos_start));
     return res;
+}
+// From stackoverflow
+std::vector<std::string> read_file(std::string path) {
+    std::ifstream myfile(path);
+    std::string line;
+    std::vector<std::string> myLines;
+    while (std::getline(myfile, line)) {
+        myLines.push_back(line);
+    }
+    return myLines;
 }
 
 subhook::Hook TheHook, HookToCxxInit, HookToCppReadMainFile;//, SetGlobalFriendHook;

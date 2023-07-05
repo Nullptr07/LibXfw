@@ -1,3 +1,4 @@
+#line 1 "<prologue>"
 #include <functional>
 #include <any>
 #include <vector>
@@ -22,10 +23,10 @@ struct $Dynamic {
 };
 struct $MemberInfo {
 private:
-#define _$GetValue_$Ret void*
+#define _$GetValue_$Ret std::any
 #define _$GetValue_$Args void* /* obj */
 #define _$GetValue_$FuncSig _$GetValue_$Ret (_$GetValue_$Args)
-#define _$Invoke_$Ret void*
+#define _$Invoke_$Ret std::any
 #define _$Invoke_$Args void* /* obj */, std::vector<std::any> /* args */
 #define _$Invoke_$FuncSig _$Invoke_$Ret (_$Invoke_$Args)
 
@@ -114,4 +115,4 @@ Ret $Dyncall(Class obj, Ret (Class::*fn)(Args...), std::vector<std::any> args) {
 
 struct $Reflector;
 $Type $TypeOf(auto Val);
-#line 1
+#line 1 "Test.cpp"

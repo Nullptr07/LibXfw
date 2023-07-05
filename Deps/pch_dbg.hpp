@@ -1,8 +1,6 @@
 #ifndef XFW_PCH_HPP
 #define XFW_PCH_HPP
 
-#include <nlohmann/json.hpp>
-#include <inja/inja.hpp>
 #include <cstdio>
 #include <utility>
 #include <map>
@@ -10,6 +8,11 @@
 #include <filesystem>
 #include <climits>
 #include <array>
+#include <set>
+#include <fmt/core.h>
+#include <fmt/format.h>
+#include <fmt/compile.h>
+
 #define DBG_MACRO_NO_WARNING
 #include <dbg.h>
 #include <subhook/subhook.c>
